@@ -28,21 +28,21 @@ RentMate는 사용자가 물품을 등록하고, 다른 사용자와 채팅한 �
   <tr>
     <td align="center">
       <b>메인 화면</b><br />
-      <img src="./images/rentmate-home.png" width="400" />
+      <img src="./docs/images/rentmate-home.png" width="400" />
     </td>
     <td align="center">
       <b>물품 목록</b><br />
-      <img src="./images/rentmate-item-list.png" width="400" />
+      <img src="./docs/images/rentmate-item-list.png" width="400" />
     </td>
   </tr>
   <tr>
     <td align="center">
       <b>물품 상세</b><br />
-      <img src="./images/rentmate-item-detail.png" width="400" />
+      <img src="./docs/images/rentmate-item-detail.png" width="400" />
     </td>
     <td align="center">
       <b>실시간 채팅</b><br />
-      <img src="./images/rentmate-realtime-chat.png" width="400" />
+      <img src="./docs/images/rentmate-realtime-chat.png" width="400" />
     </td>
   </tr>
 </table>
