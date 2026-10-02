@@ -4,7 +4,7 @@
 
 > 본 저장소는 팀 프로젝트 전체 소스의 소유권을 주장하기 위한 목적이 아니라, 직접 구현하거나 수정한 기능을 중심으로 정리한 개인 기여 저장소입니다.
 
-\---
+---
 
 ## Project Overview
 
@@ -21,7 +21,7 @@ RentMate는 사용자가 물품을 등록하고, 다른 사용자와 채팅한 �
 * Kakao Maps 위치 선택 연동
 * Context API 기반 인증 상태 관리
 
-\---
+---
 ## 📸 서비스 화면
 
 <table>
@@ -47,7 +47,7 @@ RentMate는 사용자가 물품을 등록하고, 다른 사용자와 채팅한 �
   </tr>
 </table>
 
-\---
+---
 
 ## Tech Stack
 
@@ -85,7 +85,7 @@ RentMate는 사용자가 물품을 등록하고, 다른 사용자와 채팅한 �
 * Kakao Places
 * Kakao Geocoder
 
-\---
+---
 
 ## Repository Structure
 
@@ -151,7 +151,7 @@ rentmate-contribution/
    └─ contribution.md
 ```
 
-\---
+---
 
 ## Key Contributions
 
@@ -175,7 +175,7 @@ Service Module
 
 화면 컴포넌트에 데이터 접근 로직이 집중되지 않도록 구성했습니다.
 
-\---
+---
 
 ### 2\. 물품 등록 및 수정
 
@@ -190,7 +190,7 @@ Service Module
 * 수정 화면에서 현재 사용자 ID와 물품 `ownerId` 일치 여부 확인
 * 기존 이미지와 신규 이미지를 분리하여 수정
 
-\---
+---
 
 ### 3\. Firebase Storage 다중 이미지 업로드
 
@@ -207,7 +207,7 @@ Service Module
 
 > 이미지 자동 리사이징이나 압축 기능은 포함하지 않습니다.
 
-\---
+---
 
 ### 4\. Firestore 실시간 채팅
 
@@ -240,7 +240,7 @@ chatRooms/{roomId}
 
 메시지 전송 후 UI는 Optimistic Update가 아니라 Firestore `onSnapshot` 결과를 통해 갱신됩니다.
 
-\---
+---
 
 ### 5\. Firestore 인덱스 제약 대응
 
@@ -254,7 +254,7 @@ chatRooms/{roomId}
 
 > 별도의 `firestore.indexes.json`을 통한 복합 인덱스 적용으로 설명하지 않습니다.
 
-\---
+---
 
 ### 6\. Kakao Maps 위치 연동
 
@@ -270,7 +270,7 @@ Kakao Maps API를 이용해 물품 등록·수정 시 위치를 선택할 수 �
 
 > 거리 기반 검색이나 위치 기반 추천 기능은 포함하지 않습니다.
 
-\---
+---
 
 ### 7\. 구매 및 물품 상태 연계
 
@@ -292,7 +292,7 @@ item.available = true
 
 구매 완료 여부는 리뷰 작성 가능 여부 확인에도 사용했습니다.
 
-\---
+---
 
 ### 8\. 결제 상태 관리
 
@@ -316,7 +316,7 @@ released
 
 이는 **에스크로 거래 흐름을 반영한 상태 관리**이며, 실제 PG사 결제 승인이나 실제 자금 정산 기능은 포함하지 않습니다.
 
-\---
+---
 
 ### 9\. 리뷰 및 평점
 
@@ -333,7 +333,7 @@ released
 
 사용자별 리뷰를 조회한 뒤 평균 평점과 리뷰 수를 계산하여 프로필 및 물품 상세 정보에 활용했습니다.
 
-\---
+---
 
 ### 10. 인증 상태 관리
 
@@ -349,7 +349,7 @@ released
 - 재접속 시 저장된 토큰의 사용자 ID와 만료 정보를 확인해 인증 상태 복원
 - React Hook Form + Zod 기반 로그인·회원가입 입력 검증
 
-\---
+---
 
 ## Parallel Processing
 
@@ -368,7 +368,7 @@ released
 
 한 요청이 실패하더라도 나머지 데이터는 계속 표시할 수 있도록 개별 결과를 처리했습니다.
 
-\---
+---
 
 ## Troubleshooting
 
@@ -386,7 +386,7 @@ released
 
 복합 인덱스를 별도로 추가하지 않고도 필요한 조회 흐름을 유지했습니다.
 
-\---
+---
 
 ### 실시간 채팅 상태 동기화
 
@@ -402,7 +402,7 @@ released
 
 Firestore의 데이터 변경을 기준으로 채팅 UI가 실시간 갱신되도록 구성했습니다. 화면 이탈 시에는 `unsubscribe()`로 리스너를 정리했습니다.
 
-\---
+---
 
 ### 다중 이미지 업로드
 
@@ -418,7 +418,7 @@ Firestore의 데이터 변경을 기준으로 채팅 UI가 실시간 갱신되�
 
 여러 이미지의 다운로드 URL을 배열로 수집하여 Firestore `items.images`와 연계했습니다.
 
-\---
+---
 
 ### 프로필 복합 데이터 조회
 
@@ -434,7 +434,7 @@ Firestore의 데이터 변경을 기준으로 채팅 UI가 실시간 갱신되�
 
 일부 데이터 요청에 문제가 발생해도 성공한 데이터는 화면에 표시할 수 있도록 구성했습니다.
 
-\---
+---
 
 ## Verified Scope
 
@@ -452,14 +452,14 @@ Firestore의 데이터 변경을 기준으로 채팅 UI가 실시간 갱신되�
 * 평균 평점 및 리뷰 수 계산
 * `Promise.all` / `Promise.allSettled` 병렬 처리
 
-\---
+---
 
 ## Documents
 
 * [`docs/architecture.md`](docs/architecture.md): 실제 구현 기준 시스템 구조 및 데이터 흐름
 * [`docs/contribution.md`](docs/contribution.md): 개인 기여 기능과 구현 범위 상세 정리
 
-\---
+---
 
 ## Environment Variables
 
@@ -480,7 +480,7 @@ VITE\_KAKAO\_MAP\_API\_KEY=
 
 실제 `.env` 파일은 Git에 커밋하지 않습니다.
 
-\---
+---
 
 ## Notes
 
