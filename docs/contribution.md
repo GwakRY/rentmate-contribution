@@ -406,10 +406,6 @@ RentMate 프로젝트에서는 Firestore와 Firebase Storage를 중심으로 실
 
 README와 본 문서에서는 팀 전체 결과와 개인 구현 범위를 구분하여 설명합니다.
 
-## Security / Scope Note
+## 공개 범위와 보안
 
-본 저장소는 팀 프로젝트에서 직접 구현한 기능을 포트폴리오 목적으로 정리한 코드입니다.
-
-인증은 프로토타입용 사용자 식별 토큰을 기반으로 하며, 실제 JWT 서명 검증이나 Firebase Authentication을 사용하지 않습니다.
-
-또한 Firestore Security Rules 구현은 본 저장소의 개인 기여 범위로 설명하지 않습니다. 따라서 클라이언트의 로그인·소유자 확인 로직은 운영 환경의 서버 측 권한 통제를 대체하지 않습니다.
+[프로토타입 한계와 보안 범위](scope-and-security.md)에서 로그인·권한 통제·결제·기능 범위를 함께 설명합니다.
