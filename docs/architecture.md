@@ -178,9 +178,11 @@ firestoreItemService
 1. 제목, 설명, 카테고리, 위치, 가격 입력
 2. 대여 가능 기간 선택
 3. 날짜 범위를 `availableDates` 배열로 변환
-4. Firestore `items` 문서 생성
-5. 이미지가 있으면 Firebase Storage에 업로드
-6. 다운로드 URL 배열을 `items.images`에 저장
+4. `images: []`인 Firestore `items` 문서를 생성하고 `docRef.id` 확보
+5. 이미지가 있으면 생성된 물품 ID로 Storage 경로를 구성하여 파일별 검사·업로드·URL 조회 실행
+6. `Promise.all()`이 성공하면 다운로드 URL 배열을 해당 물품의 `images`에 저장하고 `updatedAt` 갱신
+
+문서 생성 → 생성된 물품 ID로 이미지 업로드 → 다운로드 URL 배열로 물품 문서 갱신의 순서입니다. 이미지 처리 단계가 실패해도 먼저 생성한 문서는 남으며, 실패 상태를 오류로 전달합니다.
 
 ### 수정 처리
 
@@ -192,40 +194,25 @@ firestoreItemService
 
 ## 7\. 이미지 저장 구조
 
-이미지는 Firebase Storage에 다음과 같은 경로로 저장합니다.
+이미지 파일의 저장 경로는 `public/items/{itemId}/{fileName}`입니다. `itemId`는 물품 문서를 생성한 결과에서 얻고, 파일명은 물품 ID·현재 시각·난수·확장자를 조합합니다. 파일명 충돌 가능성을 줄이는 방식이며, 충돌의 완전한 방지를 보장하지 않습니다.
 
-```text
-public/
-└─ items/
-   └─ {itemId}/
-      └─ {generatedFileName}
+파일마다 `10 * 1024 * 1024`바이트 이하인지, `File.type`이 `image/`로 시작하는지 검사한 뒤 해당 파일을 업로드합니다. 업로드 결과에서 `getDownloadURL()`로 URL을 얻고, `Promise.all()`이 모든 결과를 수집하면 물품 문서를 갱신합니다.
+
+```mermaid
+flowchart TD
+    A["물품 문서 생성 (images: [])"] --> B["itemId로 저장 경로 구성"]
+    B --> C["파일별 검사·업로드·URL 조회"]
+    C --> D{"Promise.all 성공?"}
+    D -->|"성공"| E["items.images·updatedAt 갱신"]
+    D -->|"실패"| F["오류 전달 (물품 문서 유지)"]
+    E -->|"문서 갱신 실패"| F
 ```
 
-업로드 전 다음 검증을 수행합니다.
+이미지 작업은 병렬로 실행하지만 물품 문서의 URL 배열은 전체 성공 후 한 번 갱신합니다. 일부 작업이 실패하면 URL 갱신으로 진행하지 않으며, 다른 업로드를 취소하거나 성공한 파일을 삭제하는 처리는 없습니다.
 
-* 최대 파일 크기 10MB
-* MIME Type이 `image/\*`인지 확인
+업로드 이후 문서 갱신 실패도 같은 이미지 업로드 실패 메시지로 전달합니다. 문서·파일의 자동 롤백, 자동 재시도, 이미지 리사이징·압축은 구현하지 않았습니다.
 
-다중 이미지는 `Promise.all()`을 사용해 병렬 업로드합니다.
-
-```text
-File\[]
-  |
-  +--> uploadBytes()
-  +--> uploadBytes()
-  +--> uploadBytes()
-          |
-          v
-     Promise.all()
-          |
-          v
-   Download URL\[]
-          |
-          v
-   Firestore items.images
-```
-
-이미지 자동 리사이징이나 압축 기능은 구현하지 않았습니다.
+관련 코드: [firestoreItemService.ts](../src/services/firestoreItemService.ts), [firebaseStorageService.ts](../src/services/firebaseStorageService.ts)
 
 ---
 
@@ -384,37 +371,36 @@ item.location
 
 구매 정보는 Firestore `purchases` 컬렉션에 저장합니다.
 
-```text
-Purchase
-├─ itemId
-├─ buyerId
-├─ sellerId
-├─ amount
-├─ status
-├─ createdAt
-└─ completedAt
-```
+| 필드 | 데이터 연결 |
+|---|---|
+| `itemId` | 요청 물품의 문서 ID |
+| `buyerId` | 사용자 식별 토큰에서 얻은 ID |
+| `sellerId` | 조회한 물품의 `ownerId` |
+| `amount` | 함수에 전달된 금액 |
+| `status` | 생성 시 `completed` |
+| `createdAt·completedAt` | 생성 시 서버 타임스탬프 |
 
-현재 구현에서는 구매 생성 시 바로 `completed` 상태를 저장합니다.
+### 생성 순서
 
-```text
-구매
- |
- v
-purchases 생성
- |
- v
-item.available = false
-```
+1. 사용자 ID를 확인하고 물품 문서를 조회합니다.
+2. 물품이 없거나 `available`이 거짓이면 오류를 반환합니다.
+3. 구매 문서를 `completed` 상태로 생성합니다.
+4. 해당 물품의 `available`을 `false`로 갱신합니다.
 
-구매가 취소되면 물품 상태를 다시 대여 가능 상태로 복원합니다.
+생성 시 바로 완료 상태를 저장하는 프로토타입이며, 결제 승인이나 대여 종료를 확인하는 단계는 아닙니다.
 
-```text
-cancelled
-   |
-   v
-item.available = true
-```
+### 상태 변경 함수
+
+`updatePurchaseStatusInFirestore()`는 구매 문서에서 물품 ID를 얻고, 물품 상태를 먼저 변경한 뒤 구매 상태를 갱신합니다.
+
+| 요청 상태 | 물품 `available` | 구매 문서 |
+|---|---|---|
+| `completed` | `false` | 상태·완료 시각·수정 시각 갱신 |
+| `cancelled` | `true` | 상태·수정 시각 갱신 |
+
+각 문서는 순차적으로 갱신합니다. `available` 검사는 조회 시점의 상태에 따른 요청 검사이며, 트랜잭션을 통한 동시 요청의 중복 거래 방지나 문서 간 원자성을 보장하지 않습니다.
+
+관련 코드: [firestorePurchaseService.ts](../src/services/firestorePurchaseService.ts)
 
 ---
 
@@ -453,36 +439,33 @@ released
 
 ## 15\. 리뷰 구조
 
-리뷰 작성 전 구매 완료 여부를 확인합니다.
+### 일반 구매 리뷰
 
-```text
-Review Request
-      |
-      v
-checkPurchaseCompletedInFirestore
-      |
-      +-- false --> 작성 거부
-      |
-      +-- true
-             |
-             v
-        reviews 생성
-```
+예약 ID가 없는 일반 구매 리뷰는 `checkPurchaseCompletedInFirestore(itemId, userId)`로 다음 조건을 조회합니다.
 
-리뷰에는 다음 관계 정보를 저장합니다.
+| 조회 필드 | 조건 |
+|---|---|
+| `itemId` | 리뷰 대상 물품 ID와 일치 |
+| `buyerId` | 작성자 ID와 일치 |
+| `status` | `completed` |
 
-```text
-Review
-├─ purchaseId
-├─ itemId
-├─ reviewerId
-├─ revieweeId
-├─ rating
-├─ content
-└─ createdAt
-```
+조회 결과가 없거나 조회에 실패하면 `canReview: false`로 처리하고 리뷰 생성을 거부합니다.
 
-사용자별 리뷰 조회 후 클라이언트에서 평균 평점과 리뷰 개수를 계산합니다.
+리뷰 문서에는 `itemId·reviewerId·revieweeId·rating·content·createdAt`을 저장하며, 완료 구매 조회에서 얻은 `purchaseId`가 있으면 함께 기록합니다. 이 구매 ID는 조회 결과의 첫 문서에서 얻고, 후기 모달에서 선택한 구매 ID를 직접 전달받지 않습니다.
+
+### 구매 내역의 후기 작성 상태
+
+완료 구매마다 `purchaseId == 구매 문서 ID`, `reviewerId == 현재 사용자 ID`로 기존 리뷰를 조회해 `hasReview`를 구성합니다. 프로필 화면은 이 값에 따라 후기 작성 버튼 또는 작성 완료 표시를 제공하며, 후기 제출 후 구매 내역을 다시 조회합니다.
+
+### 예약 리뷰 분기와 중복 작성 범위
+
+예약 ID가 있는 리뷰 분기는 물품·예약 존재 여부를 확인하고 예약의 `ownerId`를 리뷰 대상자로 사용합니다. 완료 구매 조회를 추가로 실행하더라도 그 결과로 작성을 차단하지 않으며, 예약 완료 상태 검사도 없습니다.
+
+기존 리뷰에 따른 화면 표시와 별개로 리뷰 생성 함수에는 중복 작성 검사가 없습니다. 모든 리뷰 경로에서 완료 거래 검증이나 중복 작성 방지를 보장한다고 설명하지 않습니다.
+
+사용자에게 작성된 리뷰는 `revieweeId`로 조회하며, 클라이언트에서 평균 평점과 리뷰 수를 계산합니다.
+
+관련 코드: [firestoreReviewService.ts](../src/services/firestoreReviewService.ts), [firestorePurchaseService.ts](../src/services/firestorePurchaseService.ts), [Profile.tsx](../src/pages/Profile.tsx), [ReviewWriteModal.tsx](../src/components/ReviewWriteModal.tsx)
 
 ---
 
@@ -537,7 +520,7 @@ Profile
 * React Hook Form + Zod 입력 검증
 * Kakao Maps 장소 검색·마커·역지오코딩
 * 구매 상태와 물품 `available` 상태 연계
-* 구매 완료 여부 기반 리뷰 작성
+* 일반 구매 리뷰의 물품·구매자·완료 조건 검사 및 구매 내역의 후기 작성 상태 연계
 * 평균 평점 및 리뷰 수 계산
 * `Promise.all` / `Promise.allSettled` 병렬 처리
 

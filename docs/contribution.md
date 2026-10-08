@@ -63,7 +63,7 @@ src/services/firebaseStorageService.ts
 * 제목, 설명, 카테고리, 위치, 가격, 대여 가능 기간을 입력받아 물품 등록
 * 날짜 범위를 `availableDates` 배열로 변환
 * 인증 토큰에서 사용자 ID를 추출해 `ownerId`와 연계
-* Firestore `items` 컬렉션에 물품 정보 저장
+* Firestore `items` 문서를 `images: []` 상태로 먼저 생성하고, 반환된 `itemId`를 이미지 업로드 및 URL 저장에 사용
 * 수정 화면에서 현재 사용자 ID와 물품 ownerId 일치 여부 확인
 * 기존 이미지와 신규 이미지를 분리해 수정 처리
 * 신규 이미지 업로드 후 기존 이미지 URL과 병합해 Firestore 갱신
@@ -78,24 +78,34 @@ src/services/firebaseStorageService.ts
 
 ### 주요 구현 파일
 
-```text
-src/services/firebaseStorageService.ts
-src/services/firestoreItemService.ts
-```
+- [firebaseStorageService.ts](../src/services/firebaseStorageService.ts)
+- [firestoreItemService.ts](../src/services/firestoreItemService.ts)
 
-### 구현 내용
+### 구현 순서
 
-* 여러 이미지 파일을 입력받아 Firebase Storage에 업로드
-* 파일 크기 10MB 제한
-* `image/\*` MIME Type 검증
-* `itemId`, timestamp, random ID를 조합해 고유 파일명 생성
-* `public/items/{itemId}/` 경로에 파일 저장
-* `Promise.all()`을 사용해 다중 이미지 병렬 업로드
-* 업로드 완료 후 다운로드 URL을 Firestore `items.images`에 저장
+1. `createItemInFirestore()`에서 `images: []`인 물품 문서를 `addDoc()`으로 생성합니다.
+2. 생성된 `docRef.id`를 `uploadImagesToFirebaseStorage(itemId, images)`에 전달합니다.
+3. 파일마다 크기와 MIME Type을 검사한 뒤 `uploadBytes()`와 `getDownloadURL()`을 실행합니다.
+4. `Promise.all()`로 업로드·URL 조회 결과를 수집합니다.
+5. 모든 작업이 성공하면 URL 배열로 해당 물품의 `images`와 `updatedAt`을 갱신합니다.
 
-### 구현 범위
+### 문서와 파일을 연결한 방법
 
-이미지 자동 리사이징, 압축, 화질 최적화 기능은 구현하지 않았습니다.
+- 저장 경로: `public/items/{itemId}/{fileName}`
+- 파일명: 물품 ID·현재 시각·난수·확장자를 조합하여 파일명 충돌 가능성을 줄입니다.
+- 파일별 제한: `10 * 1024 * 1024`바이트 이하이며, `File.type`이 `image/`로 시작해야 합니다.
+
+문서 생성으로 확보한 물품 ID를 파일 저장 경로와 문서 갱신에 공통으로 사용하여 물품 정보와 이미지 파일을 연결했습니다. 현재 구현에서는 이 ID를 전달하기 위해 문서 생성이 업로드보다 먼저 실행됩니다.
+
+이미지별 작업은 병렬로 실행하고, 전체 다운로드 URL 배열이 준비된 뒤 `items.images`를 한 번 갱신합니다. 일부 이미지의 URL을 얻을 때마다 물품 문서를 갱신하는 흐름은 아닙니다.
+
+### 실패 시 상태와 구현 범위
+
+- 업로드 또는 URL 조회가 실패하면 `items.images` 갱신 단계로 진행하지 않고 오류를 전달합니다. 이미 생성한 물품 문서는 남습니다.
+- `Promise.all()`의 실패는 다른 업로드를 취소하지 않으며, 성공한 파일을 자동 삭제하는 처리는 없습니다.
+- 업로드 이후 문서 갱신이 실패해도 동일한 이미지 업로드 실패 메시지로 처리합니다. 두 실패 원인을 별도로 구분하지 않습니다.
+- 문서·파일의 자동 롤백, 자동 재시도, 이미지 리사이징·압축은 구현하지 않았습니다.
+- 병렬 업로드의 시간 단축 수치나 파일명 충돌의 완전한 방지를 성과로 주장하지 않습니다.
 
 ---
 
@@ -182,23 +192,42 @@ src/components/location/KakaoLocationPicker.tsx
 
 ### 주요 구현 파일
 
-```text
-src/services/firestorePurchaseService.ts
-src/services/purchaseService.ts
-src/pages/ItemDetail.tsx
-src/pages/Profile.tsx
-```
+- [firestorePurchaseService.ts](../src/services/firestorePurchaseService.ts)
+- [purchaseService.ts](../src/services/purchaseService.ts)
+- [ItemDetail.tsx](../src/pages/ItemDetail.tsx)
+- [Profile.tsx](../src/pages/Profile.tsx)
 
-### 구현 내용
+### 구매 생성 조건과 데이터 연결
 
-* 구매 생성 시 `purchases` 컬렉션에 거래 정보 저장
-* 구매 완료 시 물품의 `available` 값을 `false`로 변경
-* 구매 취소 시 물품의 `available` 값을 `true`로 복원
-* 사용자별 구매 내역 조회
-* 구매 완료 여부를 기준으로 리뷰 작성 가능 여부 확인
-* 구매 내역과 리뷰 작성 여부 연계
+`createPurchaseInFirestore()`는 사용자 ID를 확인하고 물품 문서를 조회합니다. 물품이 없거나 `available`이 거짓이면 오류를 반환합니다.
 
-현재 구매 생성 로직에서는 구매 문서를 바로 `completed` 상태로 생성합니다.
+구매 문서에는 다음 정보를 저장합니다.
+
+| 필드 | 연결하는 정보 |
+|---|---|
+| `itemId` | 요청한 물품의 문서 ID |
+| `buyerId` | 사용자 식별 토큰에서 얻은 구매자 ID |
+| `sellerId` | 물품 문서의 `ownerId` |
+| `amount` | 함수에 전달된 구매 금액 |
+| `status` | 생성 시 `completed` |
+| `createdAt·completedAt` | 생성 시 서버 타임스탬프 |
+
+구매 문서를 생성한 뒤 해당 물품의 `available`을 `false`로 변경합니다. 구매 생성 시 바로 완료 상태를 저장하는 프로토타입이며, 실제 결제 승인이나 대여 종료를 확인하는 동작으로 설명하지 않습니다.
+
+### 완료·취소 상태 변경
+
+`updatePurchaseStatusInFirestore()`는 구매 문서에서 `itemId`를 얻어 물품 상태를 먼저 변경하고, 이후 구매 문서의 상태를 갱신합니다.
+
+| 구매 상태 | 물품 상태 | 구매 문서 갱신 |
+|---|---|---|
+| `completed` | `available: false` | 상태·완료 시각·수정 시각 |
+| `cancelled` | `available: true` | 상태·수정 시각 |
+
+### 구현 목적과 범위
+
+대여 가능한 물품인지 판단하는 규칙을 `available` 검사로 표현하고, 완료·취소에 따른 대여 가능 여부를 물품 상태 변경으로 연결했습니다. 사용자별 구매 내역은 `buyerId`로 조회하며 관련 물품 정보와 리뷰 작성 여부를 함께 구성합니다.
+
+구매 생성과 물품 갱신, 상태 변경 함수의 물품·구매 갱신은 각각 순차 작업입니다. Firestore 트랜잭션이나 Atomic Batch Write를 사용하지 않으므로 원자성이나 동시 요청의 중복 거래 방지를 보장하는 구현으로 설명하지 않습니다.
 
 ---
 
@@ -248,22 +277,43 @@ released
 
 ### 주요 구현 파일
 
-```text
-src/services/firestoreReviewService.ts
-src/services/firestorePurchaseService.ts
-src/pages/Profile.tsx
-```
+- [firestoreReviewService.ts](../src/services/firestoreReviewService.ts)
+- [firestorePurchaseService.ts](../src/services/firestorePurchaseService.ts)
+- [ReviewWriteModal.tsx](../src/components/ReviewWriteModal.tsx)
+- [Profile.tsx](../src/pages/Profile.tsx)
 
-### 구현 내용
+### 일반 구매 리뷰의 작성 조건
 
-* 구매 완료 여부 확인 후 리뷰 작성 허용
-* 리뷰에 `itemId`, `purchaseId`, `reviewerId`, `revieweeId` 연계
-* 평점 및 리뷰 내용 저장
-* 사용자별 리뷰 조회
-* 리뷰 작성자 및 물품 정보 추가 조회
-* 클라이언트에서 최신순 정렬
-* 사용자별 평균 평점 및 리뷰 수 계산
-* 프로필 및 물품 상세 정보에 평점 데이터 반영
+예약 ID가 없는 일반 구매 리뷰에서는 `checkPurchaseCompletedInFirestore()`로 다음 조건을 모두 만족하는 구매 문서를 조회합니다.
+
+- `itemId == 리뷰 대상 물품 ID`
+- `buyerId == 작성자 ID`
+- `status == completed`
+
+일치하는 구매가 없거나 조회에 실패하면 `canReview: false`를 반환하고, 리뷰 생성 함수는 작성을 거부합니다. 거래 완료 여부라는 서비스 규칙을 물품·구매자·상태의 조회 조건으로 구현했습니다.
+
+리뷰에는 `itemId·reviewerId·revieweeId·rating·content·createdAt`을 저장하고, 완료 구매 조회에서 얻은 `purchaseId`가 있으면 함께 기록합니다.
+
+### 기존 리뷰와 구매 내역 화면 연계
+
+1. 완료 구매마다 `purchaseId == 구매 문서 ID`, `reviewerId == 현재 사용자 ID`로 기존 리뷰를 조회합니다.
+2. 조회 결과로 `hasReview`를 구성합니다.
+3. 프로필 화면에서 `hasReview`에 따라 후기 작성 버튼 또는 작성 완료 표시를 제공합니다.
+4. 후기 제출 후 구매 내역을 다시 조회하여 화면의 후기 작성 상태를 갱신합니다.
+
+### 리뷰 조회와 평점 계산
+
+- `revieweeId`로 사용자에게 작성된 리뷰 조회
+- 리뷰 작성자 및 물품 정보 추가 조회
+- 클라이언트에서 최신순 정렬
+- 조회·구성한 리뷰를 기준으로 평균 평점 및 리뷰 수 계산
+- 프로필 및 물품 상세 정보에 평점 데이터 반영
+
+### 구현 범위
+
+- 예약 ID가 있는 분기는 물품·예약 존재 여부를 확인하지만, 예약 완료 상태를 검사해 작성을 차단하는 로직은 없습니다.
+- 기존 리뷰에 따른 버튼 표시와 별개로, 리뷰 생성 함수에는 중복 작성 검사가 없습니다.
+- 후기 모달은 선택한 구매의 ID를 리뷰 생성 함수에 전달하지 않습니다. `purchaseId`는 물품·구매자·완료 조건으로 조회한 첫 구매 문서에서 얻으므로, 선택한 구매 ID를 기준으로 리뷰를 연결한다고 설명하지 않습니다.
 
 ---
 
@@ -355,11 +405,11 @@ Firebase Authentication 기반 인증 구조는 아닙니다.
 
 **조치**
 
-업로드 전 파일 크기와 MIME Type을 검증하고, 각 이미지 업로드 작업을 Promise로 생성한 뒤 `Promise.all()`로 처리했습니다.
+물품 문서를 먼저 생성하고 반환된 `itemId`를 파일 저장 경로에 사용했습니다. 파일별 크기·MIME Type 검사 후 업로드·URL 조회를 병렬로 실행하고, `Promise.all()`로 결과를 수집했습니다.
 
 **결과**
 
-여러 이미지의 다운로드 URL을 한 번에 수집해 `items.images` 배열과 연계했습니다.
+모든 작업이 성공하면 다운로드 URL 배열을 해당 물품의 `images`에 한 번 반영했습니다. 이미지 처리 실패 시에는 이미 생성한 문서를 유지한 채 오류를 전달하며, 문서·파일을 자동으로 되돌리는 처리는 없습니다.
 
 ---
 
@@ -389,11 +439,11 @@ RentMate 프로젝트에서는 Firestore와 Firebase Storage를 중심으로 실
 * 도메인별 Service 모듈 분리
 * `onSnapshot` 기반 실시간 대화방·메시지 구현
 * 실시간 Listener Cleanup
-* Firebase Storage 다중 이미지 병렬 업로드
-* 물품 등록·수정 및 이미지 URL 연계
+* 생성된 물품 ID 기반 이미지 저장 경로 구성 및 다중 이미지 병렬 업로드
+* 전체 업로드·URL 조회 성공 후 물품 문서의 이미지 URL 갱신
 * Kakao Maps 기반 위치 선택 기능
 * 구매 상태와 물품 대여 가능 상태 연계
-* 구매 완료 여부 기반 리뷰 작성 흐름
+* 일반 구매 리뷰의 `itemId·buyerId·completed` 조건 검사 및 기존 리뷰에 따른 구매 내역 화면 연계
 * 평균 평점 및 리뷰 수 계산
 * Context API 기반 인증 상태 관리
 * `Promise.all` / `Promise.allSettled` 기반 병렬 데이터 처리
